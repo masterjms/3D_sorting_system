@@ -1,33 +1,22 @@
-"""
-instance_sales_data.py
-
-External data/parameter file for the 3D sorter MILP model.
-
-This file builds one test instance using:
-- the attached Online Sales Data.csv as order/piece source,
-- the rack/CP/AMR/shuttle parameters described in the instance summary PDF.
-
-Run this file after placing model_3d_sorter_compact.py and
-Online Sales Data.csv in the same folder.
-"""
+"""Shared data and parameter builders for 3D sorter model instances."""
 
 from __future__ import annotations
 
 import csv
 from pathlib import Path
 
-from model_3d_sorter_compact import (
-    build_3d_sorter_mip,
-    optimize_model,
-    print_solution,
-)
-
 # ============================================================
 # 0. Editable experiment settings
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "Online Sales Data.csv"
+PROJECT_ROOT = BASE_DIR.parent
+
+CSV_CANDIDATES = [
+    PROJECT_ROOT / "data" / "Online Sales Data.csv",
+    PROJECT_ROOT / "Online Sales Data.csv",
+]
+CSV_PATH = next((path for path in CSV_CANDIDATES if path.exists()), CSV_CANDIDATES[0])
 
 # Use the first 12 CSV rows for the initial test instance.
 # 12 rows produce 4 grouped orders when ROWS_PER_ORDER = 3.
@@ -45,7 +34,7 @@ TIME_STEP_BETWEEN_PIECES = 2
 
 # Solver settings
 BIG_M = 10000
-TIME_LIMIT = 300
+TIME_LIMIT = 500
 MIP_GAP = 0.01
 OUTPUT_FLAG = 1
 
@@ -388,77 +377,3 @@ def print_instance_summary(
         seq = [p for p in P if amr_of_piece[p] == amr]
         seq.sort()
         print(f"  AMR {amr}: " + " -> ".join(f"P{p}" for p in seq))
-
-
-# ============================================================
-# 5. Main execution
-# ============================================================
-
-def main() -> None:
-    P, O, G, g_p, l_p, a_p, d, piece_source = load_orders_and_pieces_from_csv(
-        csv_path=CSV_PATH,
-        num_csv_rows=NUM_CSV_ROWS,
-        rows_per_order=ROWS_PER_ORDER,
-    )
-
-    B, C, C_b, tau_LB, tau_BL, tau_BC, rho, h, A_b, A_c = build_layout_and_time_parameters()
-    amr_of_piece, K_AMR, S0 = build_fixed_amr_assignment(P=P, a_p=a_p)
-
-    validate_instance(P=P, O=O, G=G, C=C, C_b=C_b, g_p=g_p, d=d)
-
-    print_instance_summary(
-        P=P,
-        O=O,
-        G=G,
-        B=B,
-        C=C,
-        C_b=C_b,
-        g_p=g_p,
-        l_p=l_p,
-        a_p=a_p,
-        d=d,
-        amr_of_piece=amr_of_piece,
-        piece_source=piece_source,
-    )
-
-    model, variables = build_3d_sorter_mip(
-        P=P,
-        O=O,
-        G=G,
-        C=C,
-        B=B,
-        C_b=C_b,
-        g_p=g_p,
-        l_p=l_p,
-        d=d,
-        tau_LB=tau_LB,
-        tau_BL=tau_BL,
-        tau_BC=tau_BC,
-        rho=rho,
-        h=h,
-        A_b=A_b,
-        A_c=A_c,
-        S0=S0,
-        K_AMR=K_AMR,
-        big_m=BIG_M,
-        time_limit=TIME_LIMIT,
-        mip_gap=MIP_GAP,
-        output_flag=OUTPUT_FLAG,
-    )
-
-    solved = optimize_model(model)
-    if solved:
-        print_solution(
-            P=P,
-            O=O,
-            B=B,
-            C_b=C_b,
-            g_p=g_p,
-            l_p=l_p,
-            amr_of_piece=amr_of_piece,
-            variables=variables,
-        )
-
-
-if __name__ == "__main__":
-    main()

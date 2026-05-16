@@ -125,16 +125,23 @@ p' 먼저 처리 → p 처리
 
 ## 5. 현재 코드 구성
 
-본 프로젝트는 크게 두 개의 Python 파일과 하나의 CSV 데이터 파일로 구성된다.
+본 프로젝트는 모델별 폴더, 공용 instance 생성 모듈, 데이터 폴더로 구성된다.
 
 ```text
 .
-├── model_3d_sorter_compact.py
-├── instance_sales_data.py
-└── Online Sales Data.csv
+├── common/
+│   └── instance_data.py
+├── data/
+│   └── Online Sales Data.csv
+├── HORS_MIP/
+│   ├── model_3d_sorter_compact.py
+│   └── run_compact_instance.py
+└── DEC_MIP/
+    ├── model_3d_sorter_decomposition.py
+    └── run_decomposition_instance.py
 ```
 
-### `model_3d_sorter_compact.py`
+### `HORS_MIP/model_3d_sorter_compact.py`
 
 수리모델 본체가 들어 있는 파일이다.
 
@@ -149,9 +156,9 @@ p' 먼저 처리 → p 처리
 
 이 파일은 수리모델 구조를 담고 있으므로, 일반적으로 자주 수정하지 않는다.
 
-### `instance_sales_data.py`
+### `common/instance_data.py`
 
-실행용 파일이다.
+공용 instance 생성 파일이다.
 
 포함 내용:
 
@@ -161,13 +168,18 @@ p' 먼저 처리 → p 처리
 * rack/CP 구조 생성
 * AMR round-robin 배정
 * 시간 파라미터 생성
-* `model_3d_sorter_compact.py` 호출
-* Gurobi 최적화 실행
-* 결과 출력
 
 실험 조건이나 파라미터를 바꾸고 싶을 때는 주로 이 파일을 수정한다.
 
-### `Online Sales Data.csv`
+### `HORS_MIP/run_compact_instance.py`
+
+compact formulation 실행용 파일이다.
+
+### `DEC_MIP/run_decomposition_instance.py`
+
+decomposition formulation 실행용 파일이다.
+
+### `data/Online Sales Data.csv`
 
 실험용 주문 데이터이다.
 
@@ -190,7 +202,7 @@ p' 먼저 처리 → p 처리
 ## 6. CSV 데이터 전처리 정책
 
 CSV 데이터는 Gurobi 모델에 바로 들어가지 않는다.
-`instance_sales_data.py`에서 다음 정책에 따라 수리모델 입력 데이터로 변환된다.
+`common/instance_data.py`에서 다음 정책에 따라 수리모델 입력 데이터로 변환된다.
 
 ### 6.1 SKU 생성
 
@@ -388,25 +400,23 @@ conda install -c gurobi gurobi
 
 ### 7.2 실행 명령어
 
-세 파일을 같은 폴더에 둔다.
-
-```text
-model_3d_sorter_compact.py
-instance_sales_data.py
-Online Sales Data.csv
-```
-
-이후 터미널에서 다음 명령어를 실행한다.
+프로젝트 루트에서 원하는 formulation의 runner를 실행한다.
 
 ```bash
-python instance_sales_data.py
+python HORS_MIP/run_compact_instance.py
+```
+
+또는 decomposition formulation을 실행한다.
+
+```bash
+python DEC_MIP/run_decomposition_instance.py
 ```
 
 ---
 
 ## 8. 주요 설정값
 
-`instance_sales_data.py`에서 주로 수정할 수 있는 값은 다음과 같다.
+`common/instance_data.py`에서 주로 수정할 수 있는 값은 다음과 같다.
 
 ```python
 NUM_CSV_ROWS = 12
@@ -766,7 +776,7 @@ $$
 전체 계산 흐름은 다음과 같다.
 
 ```text
-1. Online Sales Data.csv 읽기
+1. data/Online Sales Data.csv 읽기
 
 2. CSV 전처리
    - Product Category를 SKU로 변환

@@ -1,0 +1,1 @@
+"""Decomposition MIP package."""

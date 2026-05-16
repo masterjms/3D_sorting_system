@@ -6,11 +6,8 @@ Compact MILP model for a 3D Robotized Sorting System with:
 - direct AMR-shuttle handover,
 - one shuttle per rack,
 - fixed AMR assignment/sequence,
+- fixed rack/shuttle processing sequence by piece index/order,
 - no CP reuse,
-- compact Piece-Order-CP linking without w[p,o,c].
-
-This file contains ONLY the mathematical model builder and result printer.
-All data/parameters should be supplied from a separate instance file.
 """
 
 from __future__ import annotations
@@ -120,10 +117,6 @@ def build_3d_sorter_mip(
 
     # r[p,b] = 1 if piece p uses rack/shuttle b
     r = model.addVars(P, B, vtype=GRB.BINARY, name="r_piece_rack")
-
-    # q[p,p',b] = 1 if piece p is processed before piece p' on rack b
-    q_keys = [(p, pp, b) for p in P for pp in P if p < pp for b in B]
-    q = model.addVars(q_keys, vtype=GRB.BINARY, name="q_piece_sequence_on_rack")
 
     # Timing variables
     S = model.addVars(P, lb=0, vtype=GRB.CONTINUOUS, name="S_amr_start")
@@ -325,6 +318,12 @@ def build_3d_sorter_mip(
 
     # ---------------------------------------------------------
     # 4.10 Rack/Shuttle single-processing sequencing
+    #
+    # Fixed-sequence version:
+    # - q[p,p',b] is removed.
+    # - If p < p' and both pieces use the same rack b,
+    #   piece p must be completed by the shuttle before piece p'
+    #   starts handover.
     # ---------------------------------------------------------
 
     for p in P:
@@ -333,17 +332,8 @@ def build_3d_sorter_mip(
                 for b in B:
                     model.addConstr(
                         H[pp]
-                        >= F[p]
-                        - M * (1 - q[p, pp, b])
-                        - M * (2 - r[p, b] - r[pp, b]),
-                        name=f"rack_seq_p_before_pp[{p},{pp},{b}]",
-                    )
-                    model.addConstr(
-                        H[p]
-                        >= F[pp]
-                        - M * q[p, pp, b]
-                        - M * (2 - r[p, b] - r[pp, b]),
-                        name=f"rack_seq_pp_before_p[{p},{pp},{b}]",
+                        >= F[p] - M * (2 - r[p, b] - r[pp, b]),
+                        name=f"rack_seq_fixed_order[{p},{pp},{b}]",
                     )
 
     # ---------------------------------------------------------
@@ -377,7 +367,6 @@ def build_3d_sorter_mip(
         "y": y,
         "m": m,
         "r": r,
-        "q": q,
         "S": S,
         "E": E,
         "H": H,
