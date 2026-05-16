@@ -11,9 +11,7 @@ Stage 2: O2CP + Timing integrated MIP
 - Fix x[p,o] from Stage 1.
 - Decide order-to-CP y[o,c], piece-to-CP m[p,c], piece-to-rack r[p,b].
 - Optimize AMR/shuttle timing and Cmax.
-
-This file is designed to work with the shared data structures built by
-common.instance_data.
+v2
 """
 
 from __future__ import annotations
@@ -51,10 +49,15 @@ class DecompositionResult:
 # ============================================================
 
 
-def build_rack_of_cp(B: list[int], C: list[int], C_b: dict[int, list[int]]) -> dict[int, int]:
+def build_rack_of_cp(
+    B: list[int],
+    C: list[int],
+    C_b: dict[int, list[int]],
+) -> dict[int, int]:
     """Return rack_of_cp[c] = b after validating CP membership."""
 
     cp_seen: list[int] = []
+
     for b in B:
         if b not in C_b:
             raise ValueError(f"Missing C_b entry for rack {b}.")
@@ -69,18 +72,24 @@ def build_rack_of_cp(B: list[int], C: list[int], C_b: dict[int, list[int]]) -> d
     return {c: b for b in B for c in C_b[b]}
 
 
-def optimize_model(model: gp.Model, *, iis_filename: str = "infeasible_model.ilp") -> bool:
+def optimize_model(
+    model: gp.Model,
+    *,
+    iis_filename: str = "infeasible_model.ilp",
+) -> bool:
     """Optimize model and return True if at least one feasible solution is found."""
 
     model.optimize()
 
     if model.SolCount == 0:
         print("\nNo feasible solution found.")
+
         if model.Status == GRB.INFEASIBLE:
             print("Model is infeasible. Computing IIS...")
             model.computeIIS()
             model.write(iis_filename)
             print(f"IIS written to {iis_filename}")
+
         return False
 
     print("\n==============================")
@@ -92,6 +101,7 @@ def optimize_model(model: gp.Model, *, iis_filename: str = "infeasible_model.ilp
     print(f"Best Bound : {model.ObjBound:.4f}")
     print(f"MIP Gap    : {model.MIPGap:.6f}")
     print(f"Runtime    : {model.Runtime:.2f} sec")
+
     return True
 
 
@@ -121,17 +131,9 @@ def build_p2o_mip(
 
     Objective:
     - Minimize total order spread.
-      The spread of order o is approximated by last_pos[o] - first_pos[o] + 1.
-      This follows the decomposition idea that compact order spans are useful
-      for downstream CP assignment.
-
-    Notes:
-    - This stage does not know CP/rack/timing decisions yet.
-    - Therefore it does not minimize Cmax directly.
     """
 
     if piece_position is None:
-        # Default limited-lookahead sequence is the piece index/order.
         piece_position = {p: idx for idx, p in enumerate(sorted(P))}
 
     model = gp.Model("Stage1_P2O_OrderSpread_MIP")
@@ -139,21 +141,45 @@ def build_p2o_mip(
 
     x = model.addVars(P, O, vtype=GRB.BINARY, name="x_piece_order")
 
-    # first_pos[o] and last_pos[o] describe the interval occupied by order o
-    # in the lookahead sequence.
     max_pos = max(piece_position.values()) if P else 0
-    first_pos = model.addVars(O, lb=0, ub=max_pos, vtype=GRB.CONTINUOUS, name="first_pos")
-    last_pos = model.addVars(O, lb=0, ub=max_pos, vtype=GRB.CONTINUOUS, name="last_pos")
-    spread = model.addVars(O, lb=0, vtype=GRB.CONTINUOUS, name="order_spread")
 
+    first_pos = model.addVars(
+        O,
+        lb=0,
+        ub=max_pos,
+        vtype=GRB.CONTINUOUS,
+        name="first_pos",
+    )
+
+    last_pos = model.addVars(
+        O,
+        lb=0,
+        ub=max_pos,
+        vtype=GRB.CONTINUOUS,
+        name="last_pos",
+    )
+
+    spread = model.addVars(
+        O,
+        lb=0,
+        vtype=GRB.CONTINUOUS,
+        name="order_spread",
+    )
+
+    # --------------------------------------------------------
     # Each piece is assigned to exactly one order.
+    # --------------------------------------------------------
+
     for p in P:
         model.addConstr(
             gp.quicksum(x[p, o] for o in O) == 1,
             name=f"one_order_per_piece[{p}]",
         )
 
+    # --------------------------------------------------------
     # SKU compatibility.
+    # --------------------------------------------------------
+
     for p in P:
         for o in O:
             if d.get((o, g_p[p]), 0) == 0:
@@ -162,9 +188,13 @@ def build_p2o_mip(
                     name=f"incompatible_piece_order[{p},{o}]",
                 )
 
-    # Demand must be exactly satisfied in the decomposed P2O stage.
-    # The original compact model used <=, but because total supply equals total
-    # demand and each piece is assigned once, equality is the cleaner P2O form.
+    # --------------------------------------------------------
+    # Demand exact satisfaction.
+    #
+    # In the decomposed P2O stage, the order composition is fixed here.
+    # Therefore demand is modeled as equality.
+    # --------------------------------------------------------
+
     for o in O:
         for sku in G:
             model.addConstr(
@@ -173,19 +203,19 @@ def build_p2o_mip(
                 name=f"demand_exact[{o},{sku}]",
             )
 
+    # --------------------------------------------------------
     # Order spread constraints.
-    # If x[p,o] = 1, then:
-    #   first_pos[o] <= pos[p]
-    #   last_pos[o]  >= pos[p]
-    # The objective pushes first_pos up and last_pos down, producing the
-    # tightest interval for assigned pieces.
+    # --------------------------------------------------------
+
     for p in P:
         pos = piece_position[p]
+
         for o in O:
             model.addConstr(
                 first_pos[o] <= pos + M * (1 - x[p, o]),
                 name=f"first_before_assigned_piece[{p},{o}]",
             )
+
             model.addConstr(
                 last_pos[o] >= pos - M * (1 - x[p, o]),
                 name=f"last_after_assigned_piece[{p},{o}]",
@@ -197,7 +227,10 @@ def build_p2o_mip(
             name=f"spread_def[{o}]",
         )
 
-    model.setObjective(gp.quicksum(spread[o] for o in O), GRB.MINIMIZE)
+    model.setObjective(
+        gp.quicksum(spread[o] for o in O),
+        GRB.MINIMIZE,
+    )
 
     model.Params.TimeLimit = time_limit
     model.Params.MIPGap = mip_gap
@@ -232,10 +265,15 @@ def extract_p2o_result(
 
     for p in P:
         assigned_orders = [o for o in O if x[p, o].X > 0.5]
+
         if len(assigned_orders) != 1:
-            raise ValueError(f"Piece {p} has invalid P2O assignment: {assigned_orders}")
+            raise ValueError(
+                f"Piece {p} has invalid P2O assignment: {assigned_orders}"
+            )
+
         assigned_order = assigned_orders[0]
         order_of_piece[p] = assigned_order
+
         for o in O:
             x_fixed[p, o] = 1 if o == assigned_order else 0
 
@@ -288,14 +326,17 @@ def build_o2cp_timing_mip(
     Fixed from Stage 1:
     - order_of_piece[p] = assigned order of piece p.
 
-    Decision:
+    Decisions:
     - y[o,c]: order-to-CP assignment
     - m[p,c]: piece-to-CP assignment induced by y[order_of_piece[p], c]
     - r[p,b]: piece-to-rack assignment induced by m and C_b
     - timing variables S, E, H, Grel, Dp, F, Wamr, Co, Cmax
 
-    Objective:
+    Main objective:
     - Minimize Cmax.
+
+    Tie-breakers:
+    - Then reduce sum(Co), sum(Dp), and sum(S) slightly.
     """
 
     if len(O) > len(C):
@@ -309,12 +350,18 @@ def build_o2cp_timing_mip(
     model = gp.Model("Stage2_O2CP_Timing_Integrated_MIP")
     M = big_m
 
+    # --------------------------------------------------------
     # O2CP and induced assignment variables.
+    # --------------------------------------------------------
+
     y = model.addVars(O, C, vtype=GRB.BINARY, name="y_order_cp")
     m = model.addVars(P, C, vtype=GRB.BINARY, name="m_piece_cp")
     r = model.addVars(P, B, vtype=GRB.BINARY, name="r_piece_rack")
 
+    # --------------------------------------------------------
     # Timing variables.
+    # --------------------------------------------------------
+
     S = model.addVars(P, lb=0, vtype=GRB.CONTINUOUS, name="S_amr_start")
     E = model.addVars(P, lb=0, vtype=GRB.CONTINUOUS, name="E_amr_arrive_rack")
     H = model.addVars(P, lb=0, vtype=GRB.CONTINUOUS, name="H_handover_start")
@@ -325,8 +372,6 @@ def build_o2cp_timing_mip(
 
     Co = model.addVars(O, lb=0, vtype=GRB.CONTINUOUS, name="C_order")
     Cmax = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="Cmax")
-
-    model.setObjective(Cmax, GRB.MINIMIZE)
 
     # --------------------------------------------------------
     # O2CP assignment
@@ -345,13 +390,16 @@ def build_o2cp_timing_mip(
         )
 
     # --------------------------------------------------------
-    # Since P2O is fixed, m[p,c] = y[order_of_piece[p], c]
+    # Since P2O is fixed:
+    # m[p,c] = y[order_of_piece[p], c]
     # --------------------------------------------------------
 
     for p in P:
         if p not in order_of_piece:
             raise ValueError(f"Missing fixed order assignment for piece {p}.")
+
         assigned_order = order_of_piece[p]
+
         if assigned_order not in O:
             raise ValueError(f"Invalid fixed order {assigned_order} for piece {p}.")
 
@@ -376,6 +424,7 @@ def build_o2cp_timing_mip(
                 r[p, b] == gp.quicksum(m[p, c] for c in C_b[b]),
                 name=f"piece_rack_link[{p},{b}]",
             )
+
         model.addConstr(
             gp.quicksum(r[p, b] for b in B) == 1,
             name=f"one_rack_per_piece[{p}]",
@@ -383,6 +432,9 @@ def build_o2cp_timing_mip(
 
     # --------------------------------------------------------
     # AMR start and rack arrival time
+    #
+    # FIX:
+    # E[p] is now equality, not lower bound.
     # --------------------------------------------------------
 
     for p in P:
@@ -390,13 +442,19 @@ def build_o2cp_timing_mip(
             S[p] >= S0[p],
             name=f"amr_start_after_piece_available[{p}]",
         )
+
         model.addConstr(
-            E[p] >= S[p] + gp.quicksum(tau_LB[l_p[p], b] * r[p, b] for b in B),
-            name=f"amr_arrival_at_rack[{p}]",
+            E[p]
+            == S[p]
+            + gp.quicksum(tau_LB[l_p[p], b] * r[p, b] for b in B),
+            name=f"amr_arrival_at_rack_exact[{p}]",
         )
 
     # --------------------------------------------------------
     # No-buffer direct handover constraints
+    #
+    # FIX:
+    # Grel[p] is now equality, not lower bound.
     # --------------------------------------------------------
 
     for p in P:
@@ -404,14 +462,19 @@ def build_o2cp_timing_mip(
             H[p] >= E[p],
             name=f"handover_after_amr_arrival[{p}]",
         )
+
         model.addConstr(
             H[p] >= gp.quicksum(A_b[b] * r[p, b] for b in B),
             name=f"handover_after_initial_shuttle_available[{p}]",
         )
+
         model.addConstr(
-            Grel[p] >= H[p] + gp.quicksum(h[b] * r[p, b] for b in B),
-            name=f"amr_release_after_handover[{p}]",
+            Grel[p]
+            == H[p]
+            + gp.quicksum(h[b] * r[p, b] for b in B),
+            name=f"amr_release_after_handover_exact[{p}]",
         )
+
         model.addConstr(
             Wamr[p] == H[p] - E[p],
             name=f"amr_waiting_time[{p}]",
@@ -424,7 +487,8 @@ def build_o2cp_timing_mip(
     for p, pp in K_AMR:
         model.addConstr(
             S[pp]
-            >= Grel[p] + gp.quicksum(tau_BL[b, l_p[pp]] * r[p, b] for b in B),
+            >= Grel[p]
+            + gp.quicksum(tau_BL[b, l_p[pp]] * r[p, b] for b in B),
             name=f"same_amr_next_job[{p},{pp}]",
         )
 
@@ -440,21 +504,28 @@ def build_o2cp_timing_mip(
 
     # --------------------------------------------------------
     # Rack/shuttle processing time
+    #
+    # FIX:
+    # Dp[p] and F[p] are now exact physical timing equations.
+    #
+    # Dp[p] = H[p] + handover + rack_to_cp
+    # F[p]  = H[p] + handover + rack_to_cp + return
     # --------------------------------------------------------
 
     for p in P:
         model.addConstr(
             Dp[p]
-            >= H[p]
+            == H[p]
             + gp.quicksum(
                 (h[rack_of_cp[c]] + tau_BC[rack_of_cp[c], c]) * m[p, c]
                 for c in C
             ),
-            name=f"piece_cp_completion[{p}]",
+            name=f"piece_cp_completion_exact[{p}]",
         )
+
         model.addConstr(
             F[p]
-            >= H[p]
+            == H[p]
             + gp.quicksum(
                 (
                     h[rack_of_cp[c]]
@@ -464,14 +535,14 @@ def build_o2cp_timing_mip(
                 * m[p, c]
                 for c in C
             ),
-            name=f"shuttle_release[{p}]",
+            name=f"shuttle_release_exact[{p}]",
         )
 
     # --------------------------------------------------------
     # Rack/shuttle single-processing sequencing
     #
     # Because Stage 2 still decides y/m/r, r[p,b] is not fixed here.
-    # Therefore the Big-M sequencing logic from the compact HORS MIP is kept.
+    # Therefore Big-M sequencing is kept.
     # --------------------------------------------------------
 
     for p in P:
@@ -490,8 +561,10 @@ def build_o2cp_timing_mip(
 
     for o in O:
         assigned_pieces = [p for p in P if order_of_piece[p] == o]
+
         if not assigned_pieces:
             raise ValueError(f"Order {o} has no assigned pieces after P2O.")
+
         for p in assigned_pieces:
             model.addConstr(
                 Co[o] >= Dp[p],
@@ -499,7 +572,29 @@ def build_o2cp_timing_mip(
             )
 
     for o in O:
-        model.addConstr(Cmax >= Co[o], name=f"makespan[{o}]")
+        model.addConstr(
+            Cmax >= Co[o],
+            name=f"makespan[{o}]",
+        )
+
+    # --------------------------------------------------------
+    # Objective
+    #
+    # Main objective is Cmax.
+    # Small tie-breakers prevent Co, Dp, and S from floating unnecessarily.
+    # --------------------------------------------------------
+
+    eps_co = 1e-4
+    eps_dp = 1e-5
+    eps_s = 1e-6
+
+    model.setObjective(
+        Cmax
+        + eps_co * gp.quicksum(Co[o] for o in O)
+        + eps_dp * gp.quicksum(Dp[p] for p in P)
+        + eps_s * gp.quicksum(S[p] for p in P),
+        GRB.MINIMIZE,
+    )
 
     model.Params.TimeLimit = time_limit
     model.Params.MIPGap = mip_gap
@@ -577,8 +672,18 @@ def solve_two_stage_decomposition(
     if not optimize_model(p2o_model, iis_filename="p2o_infeasible.ilp"):
         return None
 
-    p2o_result = extract_p2o_result(P=P, O=O, variables=p2o_vars)
-    print_p2o_solution(P=P, O=O, g_p=g_p, p2o=p2o_result)
+    p2o_result = extract_p2o_result(
+        P=P,
+        O=O,
+        variables=p2o_vars,
+    )
+
+    print_p2o_solution(
+        P=P,
+        O=O,
+        g_p=g_p,
+        p2o=p2o_result,
+    )
 
     print("\n==============================")
     print("Stage 2: O2CP + Timing Integrated MIP")
@@ -632,6 +737,7 @@ def print_p2o_solution(
     print(f"Total spread objective = {p2o.objective:.2f}")
 
     print("\nOrder spread")
+
     for o in O:
         print(
             f"Order {o:2d}: first={p2o.first_pos[o]:5.1f}, "
@@ -640,6 +746,7 @@ def print_p2o_solution(
 
     print("\nPiece -> Order assignment")
     print("p | SKU | Order")
+
     for p in P:
         print(f"{p:2d} | {g_p[p]:16s} | {p2o.order_of_piece[p]:5d}")
 
@@ -686,9 +793,11 @@ def print_decomposition_solution(
     print("\n==============================")
     print("Order -> CP assignment")
     print("==============================")
+
     for o in O:
         assigned_cp = [c for c in C if y[o, c].X > 0.5][0]
         assigned_rack = rack_of_cp[assigned_cp]
+
         print(
             f"Order {o:2d} -> CP {assigned_cp:2d} "
             f"(Rack {assigned_rack}) | C_order = {Co[o].X:.2f}"
@@ -706,6 +815,7 @@ def print_decomposition_solution(
         assigned_order = p2o.order_of_piece[p]
         assigned_cp = [c for c in C if m[p, c].X > 0.5][0]
         assigned_rack = [b for b in B if r[p, b].X > 0.5][0]
+
         print(
             f"{p:2d} | {g_p[p]:>16s} | {l_p[p]:2d} | {amr_of_piece[p]:3d} | "
             f"{assigned_order:5d} | {assigned_cp:2d} | {assigned_rack:4d} | "
@@ -723,8 +833,10 @@ def print_decomposition_solution(
         pieces_in_rack.sort(key=lambda p: H[p].X)
 
         print(f"\nRack {b}:")
+
         for p in pieces_in_rack:
             assigned_cp = [c for c in C if m[p, c].X > 0.5][0]
+
             print(
                 f"  Piece {p:2d} -> CP {assigned_cp:2d} | "
                 f"Order={p2o.order_of_piece[p]:2d}, "
