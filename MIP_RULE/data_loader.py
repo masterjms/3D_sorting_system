@@ -109,7 +109,7 @@ def get_instance_data(csv_path, batch_size=90):
         q[c] = round(pure_move_time + depth_move_time/2 + time_drop, 2)
         p[c] = round((pure_move_time * 2) + depth_move_time + time_drop, 2)
         
-    # 5. AMR 주행/대기 차선 분리 레이아웃 반영 (Manhattan Distance)
+    # 5. AMR 주행/대기 차선 분리 (양열 마주보기 레이아웃 완벽 반영)
     grid_size = 0.6  
     amr_speed = 2.0  
     
@@ -123,15 +123,19 @@ def get_instance_data(csv_path, batch_size=90):
     d = {}
     tau = {}
     for r in R:
-        # 각 랙 r에 대한 Y축 주행 거리
-        y_distance = y_offset + (r * rack_pitch * grid_size)
+        row_idx = r % 3  
         
-        # 맨해튼 거리 = X축 진입 거리 + Y축 주행 거리
+        # 쌍 단위로 같은 Y축 이동 거리를 가짐
+        y_distance = y_offset + (row_idx * rack_pitch * grid_size)
+        
+        # 맨해튼 거리 (X축 진입 + Y축 주행)
         total_manhattan_dist = x_dist_to_parking + y_distance
         
         d[r] = round(total_manhattan_dist / amr_speed, 2)
         
-    # 타우(추정 소요 시간) 계산
+    print(f"양방향 레이아웃 랙 거리(d): {d}")
+    
+    # 타우(추정 소요 시간) 계산: 도착시간 + 핸드오버 + 셔틀편도시간
     for r in R:
         for c in C_r[r]:
             tau[c] = round(d[r] + h_val + q[c], 2)
