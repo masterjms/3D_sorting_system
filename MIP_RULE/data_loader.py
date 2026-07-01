@@ -152,6 +152,6 @@ def get_instance_data(csv_path, batch_size=90):
     'k_to_order_id': k_to_order_id,
     'piece_info': piece_info
 }
-    params = {'a': a, 'd': d, 'q': q, 'p': p, 'h': h_val, 'tau': tau, 'M': 10000, 'lam': 0.5}
+    params = {'a': a, 'd': d, 'q': q, 'p': p, 'h': h_val, 'tau': tau, 'M': 10000}
     
     return sets, params

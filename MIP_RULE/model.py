@@ -105,7 +105,6 @@ def run_agv_simulation(
     k_of_i = sets["k_of_i"]
 
     M = params["M"]
-    lam = params["lam"]
 
     if len(K) > len(C):
         raise ValueError(
@@ -288,8 +287,6 @@ def run_agv_simulation(
     # --------------------------------------------------------
     obj = (
         gp.quicksum(C_k[k] for k in K)
-        +
-        lam * gp.quicksum(W[i] for i in I)
     )
 
     m.setObjective(obj, GRB.MINIMIZE)
