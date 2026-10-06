@@ -1,5 +1,8 @@
 # 3D Robotized Sorting System MILP Model
 
+## 0. 논문 본문 보기
+[문서 내용 보기 (PDF)](./졸업논문 2026.pdf)
+
 ## 1. 연구 주제
 
 본 프로젝트는 **3D Robotized Sorting System의 구조적 특성을 반영한 수리적 모델링 및 Gurobi 기반 최적화**를 목표로 한다.
