@@ -1,7 +1,7 @@
 # 3D Robotized Sorting System MILP Model
 
 ## 0. 논문 본문 보기
-[문서 내용 보기 (PDF)](./졸업논문%2026.pdf)
+[문서 내용 보기 (PDF)](<./졸업논문 2026.pdf>)
 
 ## 1. 연구 주제
 
